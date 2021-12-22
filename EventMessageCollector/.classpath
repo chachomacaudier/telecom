@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8"/>
+	<classpathentry kind="src" path="src"/>
+	<classpathentry kind="lib" path="C:/Utils/jars/jetty-util-9.3.20.v20170531.jar"/>
+	<classpathentry kind="lib" path="C:/Utils/jars/json-20180813.jar"/>
+	<classpathentry kind="lib" path="C:/Utils/jars/mariadb-java-client-2.4.3.jar"/>
+	<classpathentry kind="lib" path="C:/Utils/jars/ojdbc7.jar"/>
+	<classpathentry kind="output" path="bin"/>
+</classpath>
