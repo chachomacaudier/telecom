@@ -5,21 +5,17 @@
  */
 package teco.eventMessage.processor.target;
 
-import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.Arrays;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 
-import org.json.JSONObject;
-
 import teco.eventMessage.EventMessage;
-import teco.eventMessage.Utils;
 import teco.eventMessage.processor.result.ProcessingResult;
+import teco.eventMessage.processor.result.RetryableErrorResult;
 
 /**
  * @author u190438
@@ -62,21 +58,48 @@ public class EventMessageTarget {
 	}
 
 	/**
-	 * Send to destination endPoint the event configured operation with
-	 * event as body.
+	 * Send to destination endPoint (REST Service) the configured event operation with
+	 * event JSON source as body.
 	 * 
 	 * Catch ALL possible errors, generate the most representative result and
 	 * return it.
 	 * 
-	 * Each obtained result is stored in the events table and correctly updated in
-	 * their group.
+	 * IMPORTAN: Each obtained result should be applied to originator event and correctly updated in
+	 * their group (responsibility of invoker).
 	 * 
 	 * @param event, an EventMessage instance ready to be executed.
 	 * @return a ProcessingResult, the execution result.
 	 */
 	public ProcessingResult executeEventMessage(EventMessage event) {
-		// TODO
-		return null;
+		HttpURLConnection conn = null;
+		ProcessingResult result = null;
+		if (token.isOnError())
+			return RetryableErrorResult.fromTokenError(event, token.getErrorDescription());
+
+		try {
+			conn = (HttpURLConnection) this.endPointURL.openConnection();
+			conn.setDoOutput(true);
+			conn.setRequestMethod(event.getOperation().getRESTMethod());
+			conn.setRequestProperty("Content-Type", "application/json");
+			conn.setRequestProperty("Accept", "application/json");
+			conn.setRequestProperty("Authorization", "Bearer " + token.getToken());
+			conn.setConnectTimeout(timeout);
+			conn.setReadTimeout(timeout);
+	
+			OutputStream os = conn.getOutputStream();
+			os.write(event.getSource().getBytes(StandardCharsets.UTF_8));
+			os.flush();
+	
+			int responseCode = conn.getResponseCode();
+			
+			result = ProcessingResult.fromResponse(responseCode, conn, event);
+		} catch (Exception ex) {
+			result = ProcessingResult.resultFromException("Unexpected Error (" + (ex.getClass().getName()) + ") - " + ex.getMessage(), event);
+		} finally {
+			conn.disconnect();
+		}
+
+		return result;
 	}
 
 	/***************************************************
@@ -124,12 +147,4 @@ public class EventMessageTarget {
 	public void setToken(EventMessageTargetToken token) {
 		this.token = token;
 	}
-
-
-	/************************************************************
-	 * 
-	 * General private methods
-	 * 
-	 ************************************************************/
-
 }

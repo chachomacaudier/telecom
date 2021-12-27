@@ -191,7 +191,10 @@ public class EventCollectorPersistenceManager {
 			   6-EventMessage.id, 7-EventCollectorGroup.id
 		    */
 			eventUpdateStmt.setString(1, result.getState());
-			eventUpdateStmt.setString(2, result.getResultInfo());
+			if (result.hasResultInfo())
+				eventUpdateStmt.setString(2, result.getResultInfo());
+			else
+				eventUpdateStmt.setNull(2, java.sql.Types.VARCHAR);
 			eventUpdateStmt.setTimestamp(3, updateTimestamp);
 			if (ecg.getLastExecutedEventMessageId() > 0) {
 				eventUpdateStmt.setLong(4, ecg.getLastExecutedEventMessageId());
