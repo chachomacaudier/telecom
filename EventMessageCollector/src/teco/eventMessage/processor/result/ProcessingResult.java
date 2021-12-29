@@ -66,14 +66,14 @@ public abstract class ProcessingResult {
 	}
 
 	/**
-	 * Create a new BusinessErrorResult configured with the passed message and originator event. 
+	 * Create a new RetryableErrorResult configured with the passed message and originator event. 
 	 * 
 	 * @param exceptionMessage, message description of result.
 	 * @param event, original executed EventMessage
 	 * @return a new instance of BusinessErrorMessage
 	 */
 	public static ProcessingResult resultFromException(String exceptionMessage, EventMessage event) {
-		BusinessErrorResult result = new BusinessErrorResult(event);
+		RetryableErrorResult result = new RetryableErrorResult(event);
 		result.setResultInfo(exceptionMessage);
 
 		return result; 
@@ -85,7 +85,6 @@ public abstract class ProcessingResult {
 	 */
 	public ProcessingResult(EventMessage event) {
 		this.event = event;
-		// TODO Auto-generated constructor stub
 	}
 
 	
@@ -145,7 +144,7 @@ public abstract class ProcessingResult {
 	 * @return boolean
 	 */
 	public boolean shouldAbortProcessing() {
-		return true;
+		return false;
 	}
 
 	/**

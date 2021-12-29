@@ -68,7 +68,7 @@ public class EventProcessor {
 			}
 			result.log();
 			if (result.shouldAbortProcessing())
-				throw new EventMessageProcessingException("EventProcessor - processed events: [" + Integer.toString(eventCount) + "] - Processing event: " + event.getShortDescription());
+				throw new EventMessageProcessingException("EventProcessor: " + result.getResultInfo() + " - processed events: [" + Integer.toString(eventCount) + "] - Processing event: " + event.getShortDescription());
 			eventCount++;
 		}
 		return eventCount;

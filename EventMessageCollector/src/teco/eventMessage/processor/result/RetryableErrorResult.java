@@ -6,11 +6,10 @@ public class RetryableErrorResult extends ErrorResult {
 
 	public RetryableErrorResult(EventMessage event) {
 		super(event);
-		// TODO Auto-generated constructor stub
 	}
 
 	public boolean shouldAbortProcessing() {
-		return false;
+		return true;
 	}
 
 	@Override

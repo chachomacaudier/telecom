@@ -4,7 +4,6 @@
  */
 package teco.eventMessage.persistence;
 
-import java.sql.Array;
 import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.DriverManager;
@@ -47,21 +46,20 @@ public class EventCollectorPersistenceManager {
 			+ "(eventMessageOriginId, eventMessageOperationId, transactionId, identification, type, publishDate, dequeuedDate, updatedDate, trxid, state, source) values "
 			+ "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
 	static private String db_event_updateQuery = "UPDATE EventMessage, EventCollectorGroup "
-			+ "SET EventMessage.state=?, EventMessage.processingInfo=?, EventMessage.updatedDate=? "
-			+ "SET EventCollectorGroup.retryableEventMessageId=?, EventCollectorGroup.lastExecutedEventMessageId=? "
+			+ "SET EventMessage.state=?, EventMessage.processingInfo=?, EventMessage.updatedDate=?, "
+			+ "EventCollectorGroup.retryableEventMessageId=?, EventCollectorGroup.lastExecutedEventMessageId=?, EventCollectorGroup.updatedTimestamp=? "
 			+ "WHERE EventMessage.id=? AND EventCollectorGroup.id=?;";
 	static private String db_event_retrieveIncludingQuery = "SELECT id, eventMessageOriginId, eventMessageOperationId, transactionId, identification, type, publishDate, "
-			+ "dequeueDate, updateDate, trxid, state, processingInfo, source "
-			+ "FROM `EventMessage` WHERE id >= ? AND state IN ('pending', 'retriable') AND eventMessageOriginId IN (?);";
+			+ "dequeuedDate, updatedDate, trxid, state, processingInfo, source "
+			+ "FROM `EventMessage` WHERE id >= ? AND state IN ('pending', 'retryable') AND eventMessageOriginId IN (";
 	static private String db_event_retrieveAfterQuery = "SELECT id, eventMessageOriginId, eventMessageOperationId, transactionId, identification, type, publishDate, " 
-			+ "dequeueDate, updateDate, trxid, state, processingInfo, source " 
-			+ "FROM `EventMessage` WHERE id > ? AND state = 'pending' AND eventMessageOriginId IN (?);";
+			+ "dequeuedDate, updatedDate, trxid, state, processingInfo, source " 
+			+ "FROM `EventMessage` WHERE id > ? AND state = 'pending' AND eventMessageOriginId IN (";
 	
 	 
 	/* EventCollectoGroup queries */
 	static private String db_collectorGroup_retrieveQuery = "SELECT id, retryableEventMessageId, lastExecutedEventMessageId, failedEventsRetryableSeconds, updatedTimestamp "
 			+ "FROM EventCollectorGroup WHERE name = ? limit 1;";
-	static private String db_collectorGroup_updateQuery = "UPDATE EventCollectorGroup SET retryableEventMessageId=?, lastExecutedEventMessageId=?, updatedTimestamp=? WHERE id=?;";
 
 	/* EventMessageTarget queries */
 	static private String db_target_retrieveQuery = "SELECT id, name FROM EventMessageTarget;";
@@ -78,10 +76,7 @@ public class EventCollectorPersistenceManager {
 
 	private PreparedStatement eventInsertStmt;
 	private PreparedStatement eventUpdateStmt;
-	private PreparedStatement eventRetrieveIncludingStmt;
-	private PreparedStatement eventRetrieveAfterStmt;
 	private PreparedStatement collectorGroupRetrieveStmt;
-	private PreparedStatement collectorGroupUpdateStmt;
 	private PreparedStatement eventMessageTargetRetrieveStmt;
 	private PreparedStatement eventMessageOperationRetrieveStmt;
 	private PreparedStatement eventMessageConfigRetrieveStmt;
@@ -91,6 +86,7 @@ public class EventCollectorPersistenceManager {
 	private String db_url;
 	private String db_user;
 	private String db_password;
+	private Long max_processable_events;
 	private Connection db_conn;
 	
 	private static Map<Long, EventMessageTarget> targetsByIdMap;
@@ -108,12 +104,13 @@ public class EventCollectorPersistenceManager {
 		String url = configProp.getProperty("db_url");
 		String user = configProp.getProperty("db_user");
 		String password = configProp.getProperty("db_password");
+		String max_events = configProp.getProperty("db_max_processable_events");
 		
 		if (driver == null || url == null || user == null || password == null)
 			throw new EventMessageConfigurationException("Required configuration property missing!");
 
 		releaseInstance();
-		instance = new EventCollectorPersistenceManager(driver, url, user, password);
+		instance = new EventCollectorPersistenceManager(driver, url, user, password, max_events);
 	}
 
 	public static EventCollectorPersistenceManager getInstance() {
@@ -187,8 +184,8 @@ public class EventCollectorPersistenceManager {
 		try {
 			/*
 			   1-EventMessage.state, 2-EventMessage.processingInfo, 3-EventMessage.updatedDate,
-			   4-EventCollectorGroup.retryableEventMessageId, 5-EventCollectorGroup.lastExecutedEventMessageId,
-			   6-EventMessage.id, 7-EventCollectorGroup.id
+			   4-EventCollectorGroup.retryableEventMessageId, 5-EventCollectorGroup.lastExecutedEventMessageId, 6-EventCollectorGroup.updatedTimestamp,
+			   7-EventMessage.id, 8-EventCollectorGroup.id
 		    */
 			eventUpdateStmt.setString(1, result.getState());
 			if (result.hasResultInfo())
@@ -196,15 +193,16 @@ public class EventCollectorPersistenceManager {
 			else
 				eventUpdateStmt.setNull(2, java.sql.Types.VARCHAR);
 			eventUpdateStmt.setTimestamp(3, updateTimestamp);
-			if (ecg.getLastExecutedEventMessageId() > 0) {
-				eventUpdateStmt.setLong(4, ecg.getLastExecutedEventMessageId());
+			if (ecg.getRetryableEventMessageId() > 0) {
+				eventUpdateStmt.setLong(4, ecg.getRetryableEventMessageId());
 				eventUpdateStmt.setNull(5, java.sql.Types.BIGINT);
 			} else {
 				eventUpdateStmt.setNull(4, java.sql.Types.BIGINT);
-				eventUpdateStmt.setLong(5, ecg.getRetryableEventMessageId());
+				eventUpdateStmt.setLong(5, ecg.getLastExecutedEventMessageId());
 			}
-			eventUpdateStmt.setLong(6, result.getEventId());
-			eventUpdateStmt.setLong(7, ecg.getId());
+			eventUpdateStmt.setTimestamp(6, updateTimestamp);
+			eventUpdateStmt.setLong(7, result.getEventId());
+			eventUpdateStmt.setLong(8, ecg.getId());
 			
 			eventUpdateStmt.executeUpdate();
 
@@ -264,7 +262,7 @@ public class EventCollectorPersistenceManager {
 	 * @throws EventMessagePersistenceException if an error occurs.
 	 */
 	public List<EventMessage> retrieveProcessableEventsIncluding(long anEventMessageId, EventCollectorGroup ecg) throws EventMessagePersistenceException {
-		return this.retrieveProcessableEvents(anEventMessageId, ecg, eventRetrieveIncludingStmt);
+		return this.retrieveProcessableEvents(anEventMessageId, ecg, db_event_retrieveIncludingQuery);
 	}
 
 	/**
@@ -277,7 +275,7 @@ public class EventCollectorPersistenceManager {
 	 * @throws EventMessagePersistenceException if an error occurs.
 	 */
 	public List<EventMessage> retrieveProcessableEventsAfter(long anEventMessageId, EventCollectorGroup ecg) throws EventMessagePersistenceException {
-		return this.retrieveProcessableEvents(anEventMessageId, ecg, eventRetrieveAfterStmt);
+		return this.retrieveProcessableEvents(anEventMessageId, ecg, db_event_retrieveAfterQuery);
 	}
 
 	/******************************************************************************
@@ -287,27 +285,59 @@ public class EventCollectorPersistenceManager {
 	 ******************************************************************************/
 
 	/**
+	 * Complete the query string used for processable events retrieving, then prepare the statement and finally
+	 * configure it with passed parameters.
+	 * 
+	 * @param anEventMessageId
+	 * @param originIDs, array of origin IDs that events should belongs to.
+	 * @param partialQuery, query string to be completed
+	 * @return a PreparedStatement configured ready for execution.
+	 * @throws SQLException if an error occurs
+	 */
+	private PreparedStatement configureProcessableEventRetrievingStatement(long anEventMessageId, Long[] originIDs, String partialQuery) throws SQLException {
+		StringBuilder sbSql = new StringBuilder( 1024 );
+		sbSql.append(partialQuery);
+
+		/* Generate a parameter hole (?) for each id part of ids array */
+		for( int i=0; i < originIDs.length; i++ ) {
+		  if( i > 0 ) sbSql.append( "," );
+		  sbSql.append( " ?" );
+		}
+		sbSql.append( " )" );
+		if (max_processable_events != null) {
+			sbSql.append(" LIMIT ");
+			sbSql.append(max_processable_events.longValue());
+		}
+
+		PreparedStatement stmt = db_conn.prepareStatement(sbSql.toString());
+
+		stmt.setLong(1, anEventMessageId);
+		
+		/* Now set the ids values */
+		for( int i=0; i < originIDs.length; i++ ) {
+			stmt.setLong( i+2, originIDs[ i ] );
+		}
+		
+		return stmt;
+	}
+	
+	/**
 	 * Retrieve all eventMessages from DB in the correct state considering anEventMessageId that
 	 * belongs to any origin of the ecg.
 	 * 
 	 * @param anEventMessageId, first included message id to retrieve.
 	 * @param ecg, EventCollectorGroup owner of retrieved messages.
+	 * @param retrieveQuery, String containing the retrieving partial query to be use.
 	 * @param stmt, the PreparedStatement to use for retrieving.
 	 * @return a List<EventMessage> with all messages of the group ready to process.
 	 * @throws EventMessagePersistenceException if an error occurs.
 	 */
-	public List<EventMessage> retrieveProcessableEvents(long anEventMessageId, EventCollectorGroup ecg, PreparedStatement stmt) throws EventMessagePersistenceException {
-		Array originIDs;
-		try {
-			originIDs = db_conn.createArrayOf("VARCHAR", ecg.getSortedOriginIDs());
-		} catch (SQLException e) {
-			throw new EventMessagePersistenceException("DB Error - Retrieving EventMessage: " + e.getMessage(), e);
-		}
+	private List<EventMessage> retrieveProcessableEvents(long anEventMessageId, EventCollectorGroup ecg, String retrieveQuery) throws EventMessagePersistenceException {
+		PreparedStatement stmt;
 		
 		List<EventMessage> events = new ArrayList<EventMessage>();
 		try {
-			stmt.setLong(1, anEventMessageId);
-			stmt.setArray(2, originIDs);
+			stmt = this.configureProcessableEventRetrievingStatement(anEventMessageId, ecg.getSortedOriginIDs(), retrieveQuery);
 			ResultSet rs = stmt.executeQuery();
 			while (rs.next()) {
 				try {
@@ -335,7 +365,7 @@ public class EventCollectorPersistenceManager {
 	private EventMessage retrieveOneEventMessage(ResultSet rs, EventCollectorGroup ecg) throws SQLException, EventMessageException {
 		/* RETURN:
 		 * 	id, eventMessageOriginId, eventMessageOperationId, transactionId, identification, type, publishDate,
-		 *  dequeueDate, updateDate, trxid, state, processingInfo, source */
+		 *  dequeuedDate, updatedDate, trxid, state, processingInfo, source */
 
 		long id, eventMessageOriginId, eventMessageOperationId, transactionId;
 		String identification, type, trxid, state, processingInfo, source;
@@ -573,11 +603,17 @@ public class EventCollectorPersistenceManager {
 	 * Create a new instance, initialize the db connection and load global objects.
 	 * 
 	 */
-	private EventCollectorPersistenceManager(String driver, String url, String user, String pass) throws Exception {
+	private EventCollectorPersistenceManager(String driver, String url, String user, String pass, String max_events) throws Exception {
 		db_driver = driver;
 		db_url = url;
 		db_user = user;
 		db_password = pass;
+		try {
+			max_processable_events = (max_events == null ? null : Long.parseLong(max_events));
+		} catch(NumberFormatException e) {
+			// Nothing to do, just log the error and continue
+			Log.getInstance().error("Error parsing max_processable_events: " + e.getMessage(), e);
+		}
 		
 		try {
 			this.initializeConnection();
@@ -596,10 +632,7 @@ public class EventCollectorPersistenceManager {
 	private void prepareCommands() throws SQLException {
         eventInsertStmt = db_conn.prepareStatement(db_event_insertQuery, Statement.RETURN_GENERATED_KEYS);
         eventUpdateStmt = db_conn.prepareStatement(db_event_updateQuery);
-        eventRetrieveIncludingStmt = db_conn.prepareStatement(db_event_retrieveIncludingQuery);
-        eventRetrieveAfterStmt = db_conn.prepareStatement(db_event_retrieveAfterQuery);
         collectorGroupRetrieveStmt = db_conn.prepareStatement(db_collectorGroup_retrieveQuery);
-        collectorGroupUpdateStmt = db_conn.prepareStatement(db_collectorGroup_updateQuery);
         eventMessageTargetRetrieveStmt = db_conn.prepareStatement(db_target_retrieveQuery);
         eventMessageOperationRetrieveStmt = db_conn.prepareStatement(db_operation_retrieveQuery);
         eventMessageConfigRetrieveStmt = db_conn.prepareStatement(db_config_retrieveQuery);
