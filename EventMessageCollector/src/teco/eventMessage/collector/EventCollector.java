@@ -18,6 +18,8 @@ import teco.eventMessage.processor.EventProcessor;
 import teco.eventMessage.origin.EventMessageOrigin;
 
 /**
+ * Event messages collector class.
+ * 
  * @author u190438
  *
  */
