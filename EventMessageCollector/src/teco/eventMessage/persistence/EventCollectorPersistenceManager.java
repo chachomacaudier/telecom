@@ -62,7 +62,7 @@ public class EventCollectorPersistenceManager {
 			+ "FROM EventCollectorGroup WHERE name = ? limit 1;";
 
 	/* EventMessageTarget queries */
-	static private String db_target_retrieveQuery = "SELECT id, name FROM EventMessageTarget;";
+	static private String db_target_retrieveQuery = "SELECT DISTINCT(t.id), t.name FROM EventMessageTarget t INNER JOIN EventMessageOrigin o ON t.id = o.eventMessageTargetId WHERE o.eventCollectorGroupId = ?;";
 
 	/* EventMessageOperation queries */
 	static private String db_operation_retrieveQuery = "SELECT id, name, operationType FROM EventMessageOperation;";
@@ -245,7 +245,9 @@ public class EventCollectorPersistenceManager {
 		}
 		
 		EventCollectorGroup ecg = new EventCollectorGroup(id, _name, retryableEventMessageId, lastExecutedEventMessageId, failedEventsRetryableSeconds, updatedTimestamp);
-		
+
+		// Retrieve eventCollectorGroup targets (from each group origin)
+		this.retrieveEventMessageTargets(ecg);
 		// Retrieve eventCollectorGroup origins and add them to new eventCollectorGroup
 		this.loadEventCollectorGroupOrigins(ecg);
 
@@ -543,12 +545,14 @@ public class EventCollectorPersistenceManager {
 	/**
 	 * Retrieve all EventMessageTargets and cache them for origin reutilization.
 	 * 
+	 * @param ecg, EventCollectorGRoup owner of targets to retrieve.
 	 * @throws EventMessagePersistenceException, if an error occurs.
 	 */
-	private void retrieveEventMessageTargets() throws EventMessagePersistenceException {
+	private void retrieveEventMessageTargets(EventCollectorGroup ecg) throws EventMessagePersistenceException {
 		long id;
 		String name;
 		try {
+			eventMessageTargetRetrieveStmt.setLong(1, ecg.getId());
 			ResultSet rs = eventMessageTargetRetrieveStmt.executeQuery();
 			/* RETURN:
 			 * 	id, name */
@@ -620,7 +624,6 @@ public class EventCollectorPersistenceManager {
 			this.prepareCommands();
 			targetsByIdMap = new HashMap<Long, EventMessageTarget>();
 			this.retrieveEventMessageOperations();
-			this.retrieveEventMessageTargets();
 		} catch (SQLException ex) {
 			try {
 				db_conn.close();
