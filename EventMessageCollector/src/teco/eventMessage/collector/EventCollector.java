@@ -94,7 +94,7 @@ public class EventCollector {
 	 * 		process pending events from this one and all pending events
 	 * - Set last event processed in group for future executions or retryable event if fails.
 	 * 
-	 * @param args
+	 * @param args, configuration properties full file name (with absolute path)
 	 */
 	public static void main(String[] args) {
 
@@ -107,11 +107,10 @@ public class EventCollector {
 		/* Load configuration properties */
 		EventCollector collector = null;
 		String configFileName = args[0];
-		String currentDirectory = System.getProperty("user.dir");
 		Properties configProp = new Properties();
 
 		try  {
-			InputStream in = new FileInputStream(Paths.get(currentDirectory, configFileName).toString());
+			InputStream in = new FileInputStream(Paths.get(configFileName).toString());
 			configProp.load(in);
 			String logLevel = configProp.getProperty("log_level");
 			Log.initializeLog(logLevel);

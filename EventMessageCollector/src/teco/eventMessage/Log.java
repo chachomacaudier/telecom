@@ -85,7 +85,7 @@ public class Log {
 		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd.HH.mm.ss");
 
 		String logFileName = "EventCollector-" + LocalDateTime.now().format(formatter) + ".log";
-		String currentDirectory = System.getProperty("user.dir");
+		String currentDirectory = Paths.get(".").toAbsolutePath().normalize().toString();
 		FileHandler fh = null;
 		try {
 			 fh=new FileHandler(Paths.get(currentDirectory, logFileName).toString(), false);
