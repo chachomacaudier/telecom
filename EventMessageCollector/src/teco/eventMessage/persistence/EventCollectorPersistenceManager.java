@@ -33,6 +33,7 @@ import teco.eventMessage.processor.result.ProcessingResult;
 import teco.eventMessage.processor.target.EventMessageTarget;
 import teco.eventMessage.processor.target.EventMessageTargetToken;
 import teco.eventMessage.processor.target.EventMessageTragetException;
+import teco.eventMessage.retryer.OnErrorEventMessageNotFound;
 
 /**
  * This class is responsible of persistence for all entities.
@@ -280,6 +281,40 @@ public class EventCollectorPersistenceManager {
 		return this.retrieveProcessableEvents(anEventMessageId, ecg, db_event_retrieveAfterQuery);
 	}
 
+	/******************************************************************************
+	 * 
+	 * Retryer persistence interface
+	 * 
+	 ******************************************************************************/
+
+	/**
+	 * Get the initial eventMessageID belonging to group, considering a window period of
+	 * group.failedEventsRetryableSeconds.
+	 * 
+	 * @param group, an EventCollectorGroup owner of target eventMessage to found.
+	 * @return a long with eventMessage ID
+	 * @throws OnErrorEventMessageNotFound, if no message found
+	 * 
+	 */
+	public long getInitialOnErrorEventMessageID(EventCollectorGroup group) throws OnErrorEventMessageNotFound {
+
+		return 0;
+	}
+
+	/**
+	 * Retrieve first on error message ID by element type from group starting at startId.
+	 * 
+	 * @param group, EventCOllectorGroup which owns messages to analyze.
+	 * @param startId, first window period message id, messages analyze should start from him.
+	 * @return messageIDByElemType map.
+	 * @throws EventMessagePersistenceException, if an error occurs
+	 */
+	public Map<String, Long> getOnErrorMessageIDsByElement(EventCollectorGroup group, long startId) throws EventMessagePersistenceException {
+		Map<String, Long> messages = new HashMap<String, Long>();
+		
+		return messages;
+	}
+	
 	/******************************************************************************
 	 * 
 	 * General Private methods

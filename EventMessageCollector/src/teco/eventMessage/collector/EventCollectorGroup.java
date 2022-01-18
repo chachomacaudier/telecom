@@ -15,6 +15,7 @@ import teco.eventMessage.EventMessage;
 import teco.eventMessage.origin.EventMessageOrigin;
 import teco.eventMessage.persistence.EventCollectorPersistenceManager;
 import teco.eventMessage.persistence.EventMessagePersistenceException;
+import teco.eventMessage.retryer.OnErrorEventMessageNotFound;
 
 /**
  * @author u190438
@@ -66,6 +67,65 @@ public class EventCollectorGroup {
 
 		return EventCollectorPersistenceManager.getInstance().retrieveProcessableEventsAfter(lastExecutedEventMessageId, this);
 	}
+
+	/********************************************************************************
+	 * 
+	 * Retryer interface
+	 * 
+	 ********************************************************************************/
+	
+	/**
+	 * @return
+	 * @throws OnErrorEventMessageNotFound
+	 */
+	public long getInitialOnErrorEventMessageID() throws OnErrorEventMessageNotFound {
+		return EventCollectorPersistenceManager.getInstance().getInitialOnErrorEventMessageID(this);
+	}
+	
+	/**
+	 * @param startId
+	 * @return
+	 * @throws EventMessagePersistenceException
+	 */
+	public Map<String, Long> getOnErrorMessageIDsByElement(long startId) throws EventMessagePersistenceException {
+		return EventCollectorPersistenceManager.getInstance().getOnErrorMessageIDsByElement(this, startId);
+	}
+	
+	/**
+	 * @param startId
+	 * @param identification
+	 * @return
+	 * @throws EventMessagePersistenceException
+	 */
+	public Long getSuccessfulyProcessedMessageIDAfter(long startId, String identification) throws EventMessagePersistenceException {
+		return EventCollectorPersistenceManager.getInstance().getSuccessfulyProcessedMessageIDAfter(startId, identification, this);
+	}
+
+	/**
+	 * @param identification
+	 * @param startId
+	 * @param okID
+	 * @return
+	 * @throws EventMessagePersistenceException
+	 */
+	public int setObsoletOnErrorMessagesOfElement(String identification, long startId, long okID) throws EventMessagePersistenceException {
+		return EventCollectorPersistenceManager.getInstance().setObsoletOnErrorMessagesOfElement(identification, startId, okID, this);
+	}
+
+	/**
+	 * @param startId
+	 * @return
+	 * @throws EventMessagePersistenceException
+	 */
+	public List<EventMessage> getReProcessableEvents(long startId) throws EventMessagePersistenceException {
+		return EventCollectorPersistenceManager.getInstance().retrieveReProcessableEventsStartingAt(startId, this);
+	}
+
+	/********************************************************************************
+	 * 
+	 * Accessors
+	 * 
+	 ********************************************************************************/
 
 	public long getId() {
 		return id;

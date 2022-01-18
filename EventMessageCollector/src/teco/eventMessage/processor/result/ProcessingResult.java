@@ -167,4 +167,13 @@ public abstract class ProcessingResult {
 		group.setLastExecutedEventMessageId(this.shouldAbortProcessing() ? 0 : this.getEventId());
 		EventCollectorPersistenceManager.getInstance().saveProcessingResult(this, group);
 	}
+
+	/**
+	 * Save the event execution result to local store.
+	 * 
+	 * @throws EventMessagePersistenceException, if occurs a persistence error.
+	 */
+	public void save() throws EventMessagePersistenceException {
+		EventCollectorPersistenceManager.getInstance().saveProcessingResult(this);
+	}
 }

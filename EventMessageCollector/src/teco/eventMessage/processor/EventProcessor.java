@@ -55,6 +55,25 @@ public class EventProcessor {
 		}
 		
 		/* Now start processing */
+		return executeEvents(events, true);
+	}
+	
+	/**
+	 * Execute passed events
+	 * Execution result status is updated for each executed event.
+	 * If updateGroup is true:
+	 * 	- The group is updated with failed executed event (retryable) and will kept last correct
+	 * executed event.
+	 * 
+	 * If all processable events executes correctly ends silently. If a non business error occurs,
+	 * an exception will be throw.  
+	 * 
+	 * @param events, list of EventMessage ready to be processed
+	 * @param updateGroup, boolean to determine if group should be updated too.
+	 * @return the events processed count
+	 * @throws EventMessageProcessingException if a non business error ocurrs
+	 */
+	public int executeEvents(List<EventMessage> events, boolean updateGroup) throws EventMessageProcessingException {
 		EventMessageOrigin origin = null;
 		ProcessingResult result = null;
 		int eventCount = 0;
@@ -62,7 +81,10 @@ public class EventProcessor {
 			origin = event.getOrigin();
 			result = origin.getTarget().executeEventMessage(event);
 			try {
-				result.save(group);
+				if (updateGroup)
+					result.save(group);
+				else
+					result.save();
 			} catch (EventMessagePersistenceException ex) {
 				throw new EventMessageProcessingException("EventProcessor - processed events: [" + Integer.toString(eventCount) + "] - Processing event: " + event.getShortDescription() + " - " + ex.getMessage(), ex);
 			}

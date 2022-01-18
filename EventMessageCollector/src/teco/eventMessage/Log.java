@@ -34,12 +34,25 @@ public class Log {
 	
 	/**
 	 * Log initialization, should be called before getting single instance.
+	 * Set default prefixes for retro-compatibility.
 	 * 
 	 * @param logLevel, finest level supported by execution log.
 	 * @throws Exception, if an error occurs
 	 */
 	public static void initializeLog(String logLevel) throws Exception {
-		instance = new Log(logLevel);
+		initializeLog(logLevel, "EventCollector", "event-processing");
+	}
+
+	/**
+	 * Log initialization, should be called before getting single instance.
+	 * 
+	 * @param logLevel, finest level supported by execution log.
+	 * @param execution_prefix, prefix name used for define execution log name.
+	 * @param processing_prefix, prefix name used for define processing log name.
+	 * @throws Exception, if an error occurs
+	 */
+	public static void initializeLog(String logLevel, String execution_prefix, String processing_prefix) throws Exception {
+		instance = new Log(logLevel, execution_prefix, processing_prefix);
 	}
 
 	/* ********************************
@@ -78,13 +91,10 @@ public class Log {
 		eventsProcessingLog.log(level, message, thrown);
 	}
 
-	/**
-	 * PRIVATE: Basic constructor
-	 */
-	private Log(String logLevel) throws Exception {
+	private Log(String logLevel, String execution_prefix, String processing_prefix) throws Exception {
 		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd.HH.mm.ss");
 
-		String logFileName = "EventCollector-" + LocalDateTime.now().format(formatter) + ".log";
+		String logFileName = execution_prefix + "-" + LocalDateTime.now().format(formatter) + ".log";
 		String currentDirectory = Paths.get(".").toAbsolutePath().normalize().toString();
 		FileHandler fh = null;
 		try {
@@ -95,11 +105,11 @@ public class Log {
 		}
 
 		/* Create the execution log and configure it logging level */
-		executionLog = Logger.getLogger("EventCollector");
+		executionLog = Logger.getLogger(execution_prefix);
 		executionLog.addHandler(fh);
 		executionLog.setLevel(Level.parse(logLevel));
 		
-		logFileName = "event-processing-" + LocalDateTime.now().format(formatter) + ".log";
+		logFileName = processing_prefix + "-" + LocalDateTime.now().format(formatter) + ".log";
 		try {
 			 fh=new FileHandler(Paths.get(currentDirectory, logFileName).toString(), false);
 			 fh.setFormatter(new SimpleFormatter() {
@@ -118,10 +128,17 @@ public class Log {
 			throw new Exception("Error opening processing log file: " + e.getMessage(), e);
 		}
 		
-		eventsProcessingLog = Logger.getLogger("event-processing");
+		eventsProcessingLog = Logger.getLogger(processing_prefix);
 		eventsProcessingLog.setUseParentHandlers(false);
 		eventsProcessingLog.addHandler(fh);
 		eventsProcessingLog.setLevel(Level.WARNING);
+	}
+
+	/**
+	 * PRIVATE: Basic constructor
+	 */
+	private Log(String logLevel) throws Exception {
+		this(logLevel, "EventCollector", "event-processing");
 	}
 
 }
