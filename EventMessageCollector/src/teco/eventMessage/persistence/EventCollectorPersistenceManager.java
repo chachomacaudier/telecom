@@ -50,13 +50,16 @@ public class EventCollectorPersistenceManager {
 			+ "SET EventMessage.state=?, EventMessage.processingInfo=?, EventMessage.updatedDate=?, "
 			+ "EventCollectorGroup.retryableEventMessageId=?, EventCollectorGroup.lastExecutedEventMessageId=?, EventCollectorGroup.updatedTimestamp=? "
 			+ "WHERE EventMessage.id=? AND EventCollectorGroup.id=?;";
+	static private String db_event_single_updateQuery = "UPDATE EventMessage "
+			+ "SET EventMessage.state=?, EventMessage.processingInfo=?, EventMessage.updatedDate=?, "
+			+ "WHERE EventMessage.id=?;";
+
 	static private String db_event_retrieveIncludingQuery = "SELECT id, eventMessageOriginId, eventMessageOperationId, transactionId, identification, type, publishDate, "
 			+ "dequeuedDate, updatedDate, trxid, state, processingInfo, source "
 			+ "FROM `EventMessage` WHERE id >= ? AND state IN ('pending', 'retryable') AND eventMessageOriginId IN (";
 	static private String db_event_retrieveAfterQuery = "SELECT id, eventMessageOriginId, eventMessageOperationId, transactionId, identification, type, publishDate, " 
 			+ "dequeuedDate, updatedDate, trxid, state, processingInfo, source " 
 			+ "FROM `EventMessage` WHERE id > ? AND state = 'pending' AND eventMessageOriginId IN (";
-	
 	 
 	/* EventCollectoGroup queries */
 	static private String db_collectorGroup_retrieveQuery = "SELECT id, retryableEventMessageId, lastExecutedEventMessageId, failedEventsRetryableSeconds, updatedTimestamp "
@@ -75,8 +78,18 @@ public class EventCollectorPersistenceManager {
 	static private String db_eventMessageOrigin_retrieveQuery = "SELECT id, name, eventMessageTargetId, eventCollectorGroupOrder "
 			+ "FROM EventMessageOrigin WHERE eventCollectorGroupId = ?;";
 
+	/* EventCollectorRetryer related queries */
+	static private String db_eventMessage_onErrorInitialID_query = "SELECT id FROM EventMessage " + 
+			"WHERE dequeuedDate >= DATE_SUB(CURRENT_DATE, INTERVAL ? SECOND) AND state = 'error' AND eventMessageOriginId IN (";
+	static private String db_eventMessage_idsByElement_query = "select identification, min(id) " + 
+			"from EventMessage " + 
+			"where state='error' AND id >= ? AND eventMessageOriginId IN (ORIGIN_IDS) " + 
+			"group by identification;";
+	
+	
 	private PreparedStatement eventInsertStmt;
 	private PreparedStatement eventUpdateStmt;
+	private PreparedStatement eventSingleUpdateStmt;
 	private PreparedStatement collectorGroupRetrieveStmt;
 	private PreparedStatement eventMessageTargetRetrieveStmt;
 	private PreparedStatement eventMessageOperationRetrieveStmt;
@@ -213,6 +226,35 @@ public class EventCollectorPersistenceManager {
 	}
 
 	/**
+	 * Save the event processing result.
+	 * The processing result status and info is updated in the executed event.
+	 * 
+	 * @param result
+	 * @throws EventMessagePersistenceException
+	 */
+	public void saveProcessingResult(ProcessingResult result) throws EventMessagePersistenceException {
+		LocalDateTime updateTime = LocalDateTime.now();
+		Timestamp updateTimestamp = Timestamp.valueOf(updateTime);
+		try {
+			/*
+			   1-EventMessage.state, 2-EventMessage.processingInfo, 3-EventMessage.updatedDate, 4-EventMessage.id
+		    */
+			eventSingleUpdateStmt.setString(1, result.getState());
+			if (result.hasResultInfo())
+				eventSingleUpdateStmt.setString(2, result.getResultInfo());
+			else
+				eventSingleUpdateStmt.setNull(2, java.sql.Types.VARCHAR);
+			eventSingleUpdateStmt.setTimestamp(3, updateTimestamp);
+			eventSingleUpdateStmt.setLong(4, result.getEventId());
+			
+			eventSingleUpdateStmt.executeUpdate();
+
+		} catch (SQLException ex) {
+			throw new EventMessagePersistenceException("DB Error - Updating EventMessage: " + ex.getMessage(), ex);
+		}
+	}
+
+	/**
 	 * Retrieve the EventCollectorGroup by name.
 	 * 
 	 * @param _name, name of the EventCollectorGroup to retrieve.
@@ -312,6 +354,18 @@ public class EventCollectorPersistenceManager {
 	public Map<String, Long> getOnErrorMessageIDsByElement(EventCollectorGroup group, long startId) throws EventMessagePersistenceException {
 		Map<String, Long> messages = new HashMap<String, Long>();
 		
+		PreparedStatement stmt;
+		
+		try {
+			stmt = this.configuredStmtForQueryWithOriginsAndAnotherID(startId, group.getSortedOriginIDs(), db_eventMessage_idsByElement_query);
+			ResultSet rs = stmt.executeQuery();
+			while (rs.next()) {
+				messages.put(rs.getString(1), Long.valueOf(rs.getLong(2)));
+			}
+		} catch (SQLException ex) {
+			throw new EventMessagePersistenceException("DB Error - Retrieving on error EventMessageIDs by Element: " + ex.getMessage(), ex);
+		}
+
 		return messages;
 	}
 	
@@ -322,16 +376,47 @@ public class EventCollectorPersistenceManager {
 	 ******************************************************************************/
 
 	/**
-	 * Complete the query string used for processable events retrieving, then prepare the statement and finally
+	 * Complete the query string passed (which use origins & anId), then prepare the statement and finally
 	 * configure it with passed parameters.
 	 * 
-	 * @param anEventMessageId
+	 * @param anId, first parameter of query passed.
+	 * @param originIDs, array of origin IDs to replace the sequence "ORIGIN_IDS" in the passed query.
+	 * @param queryString, query string to be configured
+	 * @return a PreparedStatement configured ready for execution.
+	 * @throws SQLException if an error occurs
+	 */
+	private PreparedStatement configuredStmtForQueryWithOriginsAndAnotherID(long anId, Long[] originIDs, String queryString) throws SQLException {
+		StringBuilder sbSql = new StringBuilder( 64 );
+
+		/* Generate a parameter hole (?) for each id part of ids array */
+		for( int i=0; i < originIDs.length; i++ ) {
+		  if( i > 0 ) sbSql.append( "," );
+		  sbSql.append( " ?" );
+		}
+
+		PreparedStatement stmt = db_conn.prepareStatement(queryString.replace("ORIGIN_IDS", sbSql.toString()));
+
+		stmt.setLong(1, anId);
+		
+		/* Now set the ids values */
+		for( int i=0; i < originIDs.length; i++ ) {
+			stmt.setLong( i+2, originIDs[ i ] );
+		}
+		
+		return stmt;
+	}
+	
+	/**
+	 * Complete the query string passed (which use origins & anId) for retrieving events, then prepare the statement and finally
+	 * configure it with passed parameters.
+	 * 
+	 * @param anId, first parameter of query passed.
 	 * @param originIDs, array of origin IDs that events should belongs to.
 	 * @param partialQuery, query string to be completed
 	 * @return a PreparedStatement configured ready for execution.
 	 * @throws SQLException if an error occurs
 	 */
-	private PreparedStatement configureProcessableEventRetrievingStatement(long anEventMessageId, Long[] originIDs, String partialQuery) throws SQLException {
+	private PreparedStatement configureProcessableEventRetrievingStatement(long anId, Long[] originIDs, String partialQuery) throws SQLException {
 		StringBuilder sbSql = new StringBuilder( 1024 );
 		sbSql.append(partialQuery);
 
@@ -348,7 +433,7 @@ public class EventCollectorPersistenceManager {
 
 		PreparedStatement stmt = db_conn.prepareStatement(sbSql.toString());
 
-		stmt.setLong(1, anEventMessageId);
+		stmt.setLong(1, anId);
 		
 		/* Now set the ids values */
 		for( int i=0; i < originIDs.length; i++ ) {
@@ -670,6 +755,7 @@ public class EventCollectorPersistenceManager {
 	private void prepareCommands() throws SQLException {
         eventInsertStmt = db_conn.prepareStatement(db_event_insertQuery, Statement.RETURN_GENERATED_KEYS);
         eventUpdateStmt = db_conn.prepareStatement(db_event_updateQuery);
+        eventSingleUpdateStmt = db_conn.prepareStatement(db_event_single_updateQuery);
         collectorGroupRetrieveStmt = db_conn.prepareStatement(db_collectorGroup_retrieveQuery);
         eventMessageTargetRetrieveStmt = db_conn.prepareStatement(db_target_retrieveQuery);
         eventMessageOperationRetrieveStmt = db_conn.prepareStatement(db_operation_retrieveQuery);

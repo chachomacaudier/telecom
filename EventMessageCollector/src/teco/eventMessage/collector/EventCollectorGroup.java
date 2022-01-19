@@ -75,17 +75,22 @@ public class EventCollectorGroup {
 	 ********************************************************************************/
 	
 	/**
-	 * @return
-	 * @throws OnErrorEventMessageNotFound
+	 * Get the initial on error eventMessageID belonging to the group, considering the window period of
+	 * failedEventsRetryableSeconds.
+	 * 
+	 * @return, a long id of the first message of the window period.
+	 * @throws OnErrorEventMessageNotFound, if no message with state='error' found.
 	 */
 	public long getInitialOnErrorEventMessageID() throws OnErrorEventMessageNotFound {
 		return EventCollectorPersistenceManager.getInstance().getInitialOnErrorEventMessageID(this);
 	}
 	
 	/**
-	 * @param startId
-	 * @return
-	 * @throws EventMessagePersistenceException
+	 * Retrieve first on error message ID by element type from group starting at startId.
+	 * 
+	 * @param startId, first window period message id, messages analyze should start from him.
+	 * @return messageIDByElemType map
+	 * @throws EventMessagePersistenceException, if an error occurs
 	 */
 	public Map<String, Long> getOnErrorMessageIDsByElement(long startId) throws EventMessagePersistenceException {
 		return EventCollectorPersistenceManager.getInstance().getOnErrorMessageIDsByElement(this, startId);
