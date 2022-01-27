@@ -60,6 +60,9 @@ public class EventCollectorPersistenceManager {
 	static private String db_event_retrieveAfterQuery = "SELECT id, eventMessageOriginId, eventMessageOperationId, transactionId, identification, type, publishDate, " 
 			+ "dequeuedDate, updatedDate, trxid, state, processingInfo, source " 
 			+ "FROM `EventMessage` WHERE id > ? AND state = 'pending' AND eventMessageOriginId IN (";
+	static private String db_event_retrieveOneQuery = "SELECT id, eventMessageOriginId, eventMessageOperationId, transactionId, identification, type, publishDate, " 
+			+ "dequeuedDate, updatedDate, trxid, state, processingInfo, source " 
+			+ "FROM `EventMessage` WHERE id = ?";
 	 
 	/* EventCollectoGroup queries */
 	static private String db_collectorGroup_retrieveQuery = "SELECT id, retryableEventMessageId, lastExecutedEventMessageId, failedEventsRetryableSeconds, updatedTimestamp "
@@ -79,22 +82,32 @@ public class EventCollectorPersistenceManager {
 			+ "FROM EventMessageOrigin WHERE eventCollectorGroupId = ?;";
 
 	/* EventCollectorRetryer related queries */
-	static private String db_eventMessage_onErrorInitialID_query = "SELECT id FROM EventMessage " + 
-			"WHERE dequeuedDate >= DATE_SUB(CURRENT_DATE, INTERVAL ? SECOND) AND state = 'error' AND eventMessageOriginId IN (";
+	static private String db_eventMessage_onErrorInitialID_query = "SELECT MIN(id) FROM EventMessage " + 
+			"WHERE dequeuedDate >= DATE_SUB(CURRENT_DATE, INTERVAL ? SECOND) AND state = 'error' AND eventMessageOriginId IN (ORIGIN_IDS)";
 	static private String db_eventMessage_idsByElement_query = "select identification, min(id) " + 
 			"from EventMessage " + 
 			"where state='error' AND id >= ? AND eventMessageOriginId IN (ORIGIN_IDS) " + 
 			"group by identification;";
-	
-	
+	static private String db_eventMessage_okMessageIdAfter_query = "SELECT min(id) FROM EventMessageOld " +
+			"WHERE id > ? AND identification = ? AND eventMessageOriginId = ? AND state IN ('ok','warning') ORDER BY id ASC;";
+	static private String db_eventMessage_updateAsObsolet_query = "UPDATE EventMessage " + 
+			"SET state = 'obsolet' " + 
+			"WHERE identification = ? AND id < ? AND id >= ? AND state = 'error' AND eventMessageOriginId = ?;";
+	static private String db_eventMessage_onError_retrieveQuery = "SELECT id, eventMessageOriginId, eventMessageOperationId, transactionId, identification, type, publishDate, " + 
+			"dequeuedDate, updatedDate, trxid, state, processingInfo, source " + 
+			"FROM `EventMessage` WHERE id >= ? AND state = 'error' AND eventMessageOriginId IN (ORIGIN_IDS);";
+
 	private PreparedStatement eventInsertStmt;
 	private PreparedStatement eventUpdateStmt;
+	private PreparedStatement eventRetrieveOneStmt;
 	private PreparedStatement eventSingleUpdateStmt;
 	private PreparedStatement collectorGroupRetrieveStmt;
 	private PreparedStatement eventMessageTargetRetrieveStmt;
 	private PreparedStatement eventMessageOperationRetrieveStmt;
 	private PreparedStatement eventMessageConfigRetrieveStmt;
 	private PreparedStatement eventMessageOriginRetrieveStmt;
+	private PreparedStatement eventMessageOkMessageIdAfterStmt;
+	private PreparedStatement eventMessageUpdateAsObsoletStmt;
 
 	private String db_driver;
 	private String db_url;
@@ -336,23 +349,35 @@ public class EventCollectorPersistenceManager {
 	 * @param group, an EventCollectorGroup owner of target eventMessage to found.
 	 * @return a long with eventMessage ID
 	 * @throws OnErrorEventMessageNotFound, if no message found
+	 * @throws EventMessagePersistenceException, if an error occurs
 	 * 
 	 */
-	public long getInitialOnErrorEventMessageID(EventCollectorGroup group) throws OnErrorEventMessageNotFound {
+	public long getInitialOnErrorEventMessageID(EventCollectorGroup group) throws OnErrorEventMessageNotFound, EventMessagePersistenceException {
+		PreparedStatement stmt;
+		
+		try {
+			stmt = this.configuredStmtForQueryWithOriginsAndAnotherID(group.getFailedEventsRetryableSeconds(), group.getSortedOriginIDs(), db_eventMessage_onErrorInitialID_query);
+			ResultSet rs = stmt.executeQuery();
+			if (rs.next()) {
+				return rs.getLong(1);
+			}
+		} catch (SQLException ex) {
+			throw new EventMessagePersistenceException("DB Error - Retrieving on error EventMessageIDs by Element: " + ex.getMessage(), ex);
+		}
 
-		return 0;
+		throw new OnErrorEventMessageNotFound();
 	}
 
 	/**
-	 * Retrieve first on error message ID by element type from group starting at startId.
+	 * Retrieve first on error message by element type from group starting at startId.
 	 * 
 	 * @param group, EventCOllectorGroup which owns messages to analyze.
 	 * @param startId, first window period message id, messages analyze should start from him.
-	 * @return messageIDByElemType map.
+	 * @return messagesByElemType map.
 	 * @throws EventMessagePersistenceException, if an error occurs
 	 */
-	public Map<String, Long> getOnErrorMessageIDsByElement(EventCollectorGroup group, long startId) throws EventMessagePersistenceException {
-		Map<String, Long> messages = new HashMap<String, Long>();
+	public Map<String, EventMessage> getOnErrorMessagesByElement(EventCollectorGroup group, long startId) throws EventMessagePersistenceException {
+		Map<String, EventMessage> messages = new HashMap<String, EventMessage>();
 		
 		PreparedStatement stmt;
 		
@@ -360,15 +385,102 @@ public class EventCollectorPersistenceManager {
 			stmt = this.configuredStmtForQueryWithOriginsAndAnotherID(startId, group.getSortedOriginIDs(), db_eventMessage_idsByElement_query);
 			ResultSet rs = stmt.executeQuery();
 			while (rs.next()) {
-				messages.put(rs.getString(1), Long.valueOf(rs.getLong(2)));
+				eventSingleUpdateStmt.setLong(1, rs.getLong(2));
+				ResultSet ers = eventRetrieveOneStmt.executeQuery();
+				messages.put(rs.getString(1), this.retrieveOneEventMessage(ers, group));
 			}
-		} catch (SQLException ex) {
-			throw new EventMessagePersistenceException("DB Error - Retrieving on error EventMessageIDs by Element: " + ex.getMessage(), ex);
+		} catch (SQLException|EventMessageException ex) {
+			throw new EventMessagePersistenceException("DB Error - Retrieving on error EventMessages by Element: " + ex.getMessage(), ex);
 		}
 
 		return messages;
 	}
 	
+	/**
+	 * Get event near subsequent message id for the same element identifier and origin with successful processing (state IN ['ok', 'warning']).
+	 * If there is no successfully message, return null.
+	 * 
+	 * @param event, an EventMessage from which the search should start.
+	 * @param identification, a String, element identifier to which the messages belongs. 
+	 * @param group, an EventCollectorGroup which owns messages to analyze.
+	 * @return, a Long object with message okID or null if not found.
+	 * @throws EventMessagePersistenceException, if an error occurs
+	 */
+	public Long getSuccessfulyProcessedMessageIDAfter(EventMessage event, String identification, EventCollectorGroup group) throws EventMessagePersistenceException {
+		
+		try {
+			/* 1-id, 2-identification, 3-eventMessageOriginId */
+			eventMessageOkMessageIdAfterStmt.setLong(1, event.getId());
+			eventMessageOkMessageIdAfterStmt.setString(2, identification);
+			eventMessageOkMessageIdAfterStmt.setLong(3, event.getOrigin().getId());
+
+			ResultSet rs = eventMessageOkMessageIdAfterStmt.executeQuery();
+			/* RETURN:
+			 * 	id */
+			if (rs.next()) {
+				return Long.valueOf(rs.getLong(1));
+			}
+		} catch (SQLException ex) {
+			throw new EventMessagePersistenceException("DB Error - EventMessage Successfuly processed after: " + ex.getMessage(), ex);
+		}
+
+		return null;
+	}
+
+	/**
+	 * Set as 'obsolet' all on error messages between passed event id and okID that belong to the same event origin
+	 * and same element identification.
+	 * 
+	 * @param identification, a String, element identifier to which the messages to mark as 'obsolet' belongs.
+	 * @param event, an EventMessage as the first message to mark as 'obsolet'.
+	 * @param okID, a long with the ID of the first posterior message of the same element successfully processed.
+	 * @param group, EventCollectorGroup which owns the messages.
+	 * @return eventMarkedCount, an int with updated messages as 'obsolet'.
+	 * @throws EventMessagePersistenceException, if an error occurs.
+	 */
+	public int setObsoletOnErrorMessagesOfElement(String identification, EventMessage event, long okID, EventCollectorGroup group) throws EventMessagePersistenceException {
+		try {
+			/* 1-identification, 2-okID, 3-originalID, 4-eventMessageOriginId */
+			eventMessageUpdateAsObsoletStmt.setString(1, identification);
+			eventMessageUpdateAsObsoletStmt.setLong(2, okID);
+			eventMessageUpdateAsObsoletStmt.setLong(3, event.getId());
+			eventMessageUpdateAsObsoletStmt.setLong(4, event.getOrigin().getId());
+
+			return eventMessageUpdateAsObsoletStmt.executeUpdate();
+			
+		} catch (SQLException ex) {
+			throw new EventMessagePersistenceException("DB Error - EventMessage mark as OBSOLET: " + ex.getMessage(), ex);
+		}
+	}
+
+	/**
+	 * Retrieve all on error messages belonging to the group starting from startId.
+	 * 
+	 * @param startId, a long with the initial message id to retrieve.
+	 * @param group, an EventCollectorGroup which owns the retrieved messages.
+	 * @return a message list.
+	 * @throws EventMessagePersistenceException, if an error occurs
+	 */
+	public List<EventMessage> retrieveReProcessableEventsStartingAt(long startId, EventCollectorGroup group) throws EventMessagePersistenceException {
+		PreparedStatement stmt;
+		List<EventMessage> events = new ArrayList<EventMessage>();
+		try {
+			stmt = this.configuredStmtForQueryWithOriginsAndAnotherID(startId, group.getSortedOriginIDs(), db_eventMessage_onError_retrieveQuery);
+			ResultSet rs = stmt.executeQuery();
+			while (rs.next()) {
+				try {
+					events.add(this.retrieveOneEventMessage(rs, group));
+				} catch (EventMessageException e) {
+					throw new EventMessagePersistenceException("DB Error - Retrieving Re-processable EventMessage: " + e.getMessage(), e);
+				}
+			}
+		} catch (SQLException ex) {
+			throw new EventMessagePersistenceException("DB Error - Retrieving Re-processable EventMessages: " + ex.getMessage(), ex);
+		}
+
+		return events;
+	}
+
 	/******************************************************************************
 	 * 
 	 * General Private methods
@@ -755,12 +867,15 @@ public class EventCollectorPersistenceManager {
 	private void prepareCommands() throws SQLException {
         eventInsertStmt = db_conn.prepareStatement(db_event_insertQuery, Statement.RETURN_GENERATED_KEYS);
         eventUpdateStmt = db_conn.prepareStatement(db_event_updateQuery);
+        eventRetrieveOneStmt = db_conn.prepareStatement(db_event_retrieveOneQuery);
         eventSingleUpdateStmt = db_conn.prepareStatement(db_event_single_updateQuery);
         collectorGroupRetrieveStmt = db_conn.prepareStatement(db_collectorGroup_retrieveQuery);
         eventMessageTargetRetrieveStmt = db_conn.prepareStatement(db_target_retrieveQuery);
         eventMessageOperationRetrieveStmt = db_conn.prepareStatement(db_operation_retrieveQuery);
         eventMessageConfigRetrieveStmt = db_conn.prepareStatement(db_config_retrieveQuery);
         eventMessageOriginRetrieveStmt = db_conn.prepareStatement(db_eventMessageOrigin_retrieveQuery);
+        eventMessageOkMessageIdAfterStmt = db_conn.prepareStatement(db_eventMessage_okMessageIdAfter_query);
+        eventMessageUpdateAsObsoletStmt = db_conn.prepareStatement(db_eventMessage_updateAsObsolet_query);
 	}
 
 	private void initializeConnection() throws Exception {

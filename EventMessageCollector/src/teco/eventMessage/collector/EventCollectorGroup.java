@@ -80,47 +80,57 @@ public class EventCollectorGroup {
 	 * 
 	 * @return, a long id of the first message of the window period.
 	 * @throws OnErrorEventMessageNotFound, if no message with state='error' found.
+	 * @throws EventMessagePersistenceException, if an error occurs
 	 */
-	public long getInitialOnErrorEventMessageID() throws OnErrorEventMessageNotFound {
+	public long getInitialOnErrorEventMessageID() throws OnErrorEventMessageNotFound, EventMessagePersistenceException {
 		return EventCollectorPersistenceManager.getInstance().getInitialOnErrorEventMessageID(this);
 	}
 	
 	/**
-	 * Retrieve first on error message ID by element type from group starting at startId.
+	 * Retrieve first on error message by element type from group starting at startId.
 	 * 
 	 * @param startId, first window period message id, messages analyze should start from him.
-	 * @return messageIDByElemType map
+	 * @return messagesByElemType map
 	 * @throws EventMessagePersistenceException, if an error occurs
 	 */
-	public Map<String, Long> getOnErrorMessageIDsByElement(long startId) throws EventMessagePersistenceException {
-		return EventCollectorPersistenceManager.getInstance().getOnErrorMessageIDsByElement(this, startId);
+	public Map<String, EventMessage> getOnErrorMessagesByElement(long startId) throws EventMessagePersistenceException {
+		return EventCollectorPersistenceManager.getInstance().getOnErrorMessagesByElement(this, startId);
 	}
 	
 	/**
-	 * @param startId
-	 * @param identification
-	 * @return
-	 * @throws EventMessagePersistenceException
+	 * Get event near subsequent message id for the same element identifier and origin with successful processing (state IN ['ok', 'warning']).
+	 * If there is no successfully message, return null.
+	 * 
+	 * @param event, an EventMessage from which the search should start.
+	 * @param identification, String with element identifier to which the messages belongs. 
+	 * @return, a Long object with message okID or null if not found.
+	 * @throws EventMessagePersistenceException, if an error occurs.
 	 */
-	public Long getSuccessfulyProcessedMessageIDAfter(long startId, String identification) throws EventMessagePersistenceException {
-		return EventCollectorPersistenceManager.getInstance().getSuccessfulyProcessedMessageIDAfter(startId, identification, this);
+	public Long getSuccessfulyProcessedMessageIDAfter(EventMessage event, String identification) throws EventMessagePersistenceException {
+		return EventCollectorPersistenceManager.getInstance().getSuccessfulyProcessedMessageIDAfter(event, identification, this);
 	}
 
 	/**
-	 * @param identification
-	 * @param startId
-	 * @param okID
-	 * @return
-	 * @throws EventMessagePersistenceException
+	 * Set as 'obsolet' all on error messages between passed event id and okID that belong to the same event origin
+	 * and same element identification.
+	 * 
+	 * @param identification, a String identification of event element.
+	 * @param event, an EventMessage which is the first on error message to set as 'obsolet'. 
+	 * @param okID, a long id of the first successfully executed message for the same element from the event origin. 
+	 * @return, an int with the messages count marked as 'obsolet'.
+	 * @throws EventMessagePersistenceException, if an error occurs.
 	 */
-	public int setObsoletOnErrorMessagesOfElement(String identification, long startId, long okID) throws EventMessagePersistenceException {
-		return EventCollectorPersistenceManager.getInstance().setObsoletOnErrorMessagesOfElement(identification, startId, okID, this);
+	public int setObsoletOnErrorMessagesOfElement(String identification, EventMessage event, long okID) throws EventMessagePersistenceException {
+		return EventCollectorPersistenceManager.getInstance().setObsoletOnErrorMessagesOfElement(identification, event, okID, this);
 	}
 
+	
 	/**
-	 * @param startId
-	 * @return
-	 * @throws EventMessagePersistenceException
+	 * Retrieve all on error messages belonging to the group.
+	 * 
+	 * @param startId, a long with initial message id to retrieve.
+	 * @return, a List<EventMessage> with all messages retrieved.
+	 * @throws EventMessagePersistenceException, if an error occurs
 	 */
 	public List<EventMessage> getReProcessableEvents(long startId) throws EventMessagePersistenceException {
 		return EventCollectorPersistenceManager.getInstance().retrieveReProcessableEventsStartingAt(startId, this);

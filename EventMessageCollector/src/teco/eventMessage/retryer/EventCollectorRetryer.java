@@ -69,12 +69,12 @@ public class EventCollectorRetryer {
 
 		/* Retrieving first IDs of potential elements to re-process */
 		Log.getInstance().info("Getting elelements to analyze...");
-		Map<String, Long> firstIDs = group.getOnErrorMessageIDsByElement(initialId);
-		Log.getInstance().info(Integer.toString(firstIDs.size()) + " different elements found.");
+		Map<String, EventMessage> firstMessages = group.getOnErrorMessagesByElement(initialId);
+		Log.getInstance().info(Integer.toString(firstMessages.size()) + " different elements found.");
 
 		/* Determine for each element if their messages are obsolet and mark them if appropriate */
-		for (Map.Entry<String, Long> pair : firstIDs.entrySet()) {
-			this.markAsObsoletIfAppropriate(pair.getKey(), pair.getValue().longValue());
+		for (Map.Entry<String, EventMessage> pair : firstMessages.entrySet()) {
+			this.markAsObsoletIfAppropriate(pair.getKey(), pair.getValue());
 		};
 
 		/* If still remind messages on error inside window period, re-process them in order */
@@ -82,7 +82,7 @@ public class EventCollectorRetryer {
 	}
 
 	/**
-	 * Retrieve all window period remaining messages on error and execute them.
+	 * Retrieve all window period remaining messages on error and re-execute them.
 	 * 
 	 * @throws Exception, if an error occurs.
 	 */
@@ -96,22 +96,22 @@ public class EventCollectorRetryer {
 	}
 
 	/**
-	 * Determine for the element (with identification) if their messages (from the startId) are obsolet 
+	 * Determine for the element (with identification) if their messages (from the event id) are obsolet 
 	 * and mark them if appropriate.
 	 * 
 	 * @param identification, String with element identification
-	 * @param statId, long with id from which start the analysis and marking.
+	 * @param event, an EventMessage from which start the analysis and marking.
 	 * @throws EventMessagePersistenceException, if an error occurs.
 	 * 
 	 */
-	private void markAsObsoletIfAppropriate(String identification, long statId) throws EventMessagePersistenceException {
+	private void markAsObsoletIfAppropriate(String identification, EventMessage event) throws EventMessagePersistenceException {
 		Long okID = null;
 		Log.getInstance().info("Analyzing element: " + identification);
-		okID = group.getSuccessfulyProcessedMessageIDAfter(statId, identification);
+		okID = group.getSuccessfulyProcessedMessageIDAfter(event, identification);
 		if (okID == null) {
 			Log.getInstance().info("No successfuly processed message foud for element: " + identification);
 		} else {
-			int obsoletCount = group.setObsoletOnErrorMessagesOfElement(identification, statId, okID.longValue());
+			int obsoletCount = group.setObsoletOnErrorMessagesOfElement(identification, event, okID.longValue());
 			Log.getInstance().info(Integer.toString(obsoletCount) + " messages of element: " + identification + " marked as OBSOLET");
 		}
 	}
@@ -134,7 +134,7 @@ public class EventCollectorRetryer {
 	 * Analyze previous messages inside group failedEventRetryable window and set the initial.
 	 * From there will retry processing if don't have to set as obsolet.
 	 */
-	private void calculateInitialOnErrorID() throws OnErrorEventMessageNotFound {
+	private void calculateInitialOnErrorID() throws OnErrorEventMessageNotFound, EventMessagePersistenceException {
 		initialId = group.getInitialOnErrorEventMessageID();
 	}
 	
