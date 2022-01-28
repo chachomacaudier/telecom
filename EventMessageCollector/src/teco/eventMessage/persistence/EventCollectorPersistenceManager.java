@@ -51,8 +51,8 @@ public class EventCollectorPersistenceManager {
 			+ "EventCollectorGroup.retryableEventMessageId=?, EventCollectorGroup.lastExecutedEventMessageId=?, EventCollectorGroup.updatedTimestamp=? "
 			+ "WHERE EventMessage.id=? AND EventCollectorGroup.id=?;";
 	static private String db_event_single_updateQuery = "UPDATE EventMessage "
-			+ "SET EventMessage.state=?, EventMessage.processingInfo=?, EventMessage.updatedDate=?, "
-			+ "WHERE EventMessage.id=?;";
+			+ "SET state=?, processingInfo=?, updatedDate=? "
+			+ "WHERE id=?;";
 
 	static private String db_event_retrieveIncludingQuery = "SELECT id, eventMessageOriginId, eventMessageOperationId, transactionId, identification, type, publishDate, "
 			+ "dequeuedDate, updatedDate, trxid, state, processingInfo, source "
@@ -83,12 +83,12 @@ public class EventCollectorPersistenceManager {
 
 	/* EventCollectorRetryer related queries */
 	static private String db_eventMessage_onErrorInitialID_query = "SELECT MIN(id) FROM EventMessage " + 
-			"WHERE dequeuedDate >= DATE_SUB(CURRENT_DATE, INTERVAL ? SECOND) AND state = 'error' AND eventMessageOriginId IN (ORIGIN_IDS)";
+			"WHERE updatedDate >= DATE_SUB(CURRENT_DATE, INTERVAL ? SECOND) AND state = 'error' AND eventMessageOriginId IN (ORIGIN_IDS)";
 	static private String db_eventMessage_idsByElement_query = "select identification, min(id) " + 
 			"from EventMessage " + 
 			"where state='error' AND id >= ? AND eventMessageOriginId IN (ORIGIN_IDS) " + 
 			"group by identification;";
-	static private String db_eventMessage_okMessageIdAfter_query = "SELECT min(id) FROM EventMessageOld " +
+	static private String db_eventMessage_okMessageIdAfter_query = "SELECT min(id) FROM EventMessage " +
 			"WHERE id > ? AND identification = ? AND eventMessageOriginId = ? AND state IN ('ok','warning') ORDER BY id ASC;";
 	static private String db_eventMessage_updateAsObsolet_query = "UPDATE EventMessage " + 
 			"SET state = 'obsolet' " + 
@@ -250,7 +250,7 @@ public class EventCollectorPersistenceManager {
 		Timestamp updateTimestamp = Timestamp.valueOf(updateTime);
 		try {
 			/*
-			   1-EventMessage.state, 2-EventMessage.processingInfo, 3-EventMessage.updatedDate, 4-EventMessage.id
+			   1-state, 2-processingInfo, 3-updatedDate, 4-id
 		    */
 			eventSingleUpdateStmt.setString(1, result.getState());
 			if (result.hasResultInfo())
@@ -385,9 +385,15 @@ public class EventCollectorPersistenceManager {
 			stmt = this.configuredStmtForQueryWithOriginsAndAnotherID(startId, group.getSortedOriginIDs(), db_eventMessage_idsByElement_query);
 			ResultSet rs = stmt.executeQuery();
 			while (rs.next()) {
-				eventSingleUpdateStmt.setLong(1, rs.getLong(2));
+				long eventId = rs.getLong(2);
+				String identification = rs.getString(1);
+				eventRetrieveOneStmt.setLong(1, eventId);
 				ResultSet ers = eventRetrieveOneStmt.executeQuery();
-				messages.put(rs.getString(1), this.retrieveOneEventMessage(ers, group));
+				if (ers.next()) {
+					messages.put(identification, this.retrieveOneEventMessage(ers, group));
+				} else {
+					throw new EventMessagePersistenceException("DB Error - Retrieving on error EventMessages by Element - Event Message Not Fount ID: " + Long.toString(eventId));					
+				}
 			}
 		} catch (SQLException|EventMessageException ex) {
 			throw new EventMessagePersistenceException("DB Error - Retrieving on error EventMessages by Element: " + ex.getMessage(), ex);
@@ -418,7 +424,8 @@ public class EventCollectorPersistenceManager {
 			/* RETURN:
 			 * 	id */
 			if (rs.next()) {
-				return Long.valueOf(rs.getLong(1));
+				long id = rs.getLong(1);
+				return (rs.wasNull() ? null : Long.valueOf(id));
 			}
 		} catch (SQLException ex) {
 			throw new EventMessagePersistenceException("DB Error - EventMessage Successfuly processed after: " + ex.getMessage(), ex);
