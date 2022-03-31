@@ -46,6 +46,18 @@ public class EventMessageTarget {
 		tokens.put(token.getURL(), token);
 	}
 
+	/**
+	 * Iterate tokens requesting them to prepare.
+	 * 
+	 * This should be executed before any message processing.
+	 */
+	public static void prepareTokens() {
+		/* Determine for each element if their messages are obsolet and mark them if appropriate */
+		for (Map.Entry<String, EventMessageTargetToken> pair : tokens.entrySet()) {
+			pair.getValue().prepareForProcessing();
+		};
+	}
+
 	/**************************************************
 	 * Basic constructor.
 	 * 

@@ -38,7 +38,8 @@ public class EventMessageTargetToken {
 	}
 
 	/**
-	 * Creates a new configured instance ready to be used for target processing.
+	 * Creates a new configured instance.
+	 * Needs to be prepared before it will be used for target processing.
 	 * 
 	 */
 	public EventMessageTargetToken(String url, String user, String password, int timeout)  throws EventMessageTragetException {
@@ -51,7 +52,22 @@ public class EventMessageTargetToken {
 		} catch (MalformedURLException ex) {
 			throw new EventMessageTragetException("EventMessageTarget token creation ERROR:" + ex.getMessage(), ex);
 		}
-		this.prepareForProcessing();
+	}
+
+	/**
+	 * Request a new token if was not previously obtained.
+	 * Set onError and errorDescription if something was wrong.
+	 * 
+	 */
+	public void prepareForProcessing() {
+		if (token != null) return;
+
+		try {
+			this.requestNewToken();
+		} catch (EventMessageTragetTokenException ex) {
+			onError = true;
+			errorDescription = ex.getMessage();
+		}
 	}
 
 	/*********************************************************
@@ -92,22 +108,6 @@ public class EventMessageTargetToken {
 			conn.disconnect();
 		}
 		
-	}
-
-	/**
-	 * Request a new token if was not previously obtained.
-	 * Set onError and errorDescription if something was wrong.
-	 * 
-	 */
-	private void prepareForProcessing() {
-		if (token != null) return;
-
-		try {
-			this.requestNewToken();
-		} catch (EventMessageTragetTokenException ex) {
-			onError = true;
-			errorDescription = ex.getMessage();
-		}
 	}
 
 	/*********************************************************

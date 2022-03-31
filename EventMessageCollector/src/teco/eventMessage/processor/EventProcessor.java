@@ -11,6 +11,7 @@ import teco.eventMessage.collector.EventCollectorGroup;
 import teco.eventMessage.origin.EventMessageOrigin;
 import teco.eventMessage.persistence.EventMessagePersistenceException;
 import teco.eventMessage.processor.result.ProcessingResult;
+import teco.eventMessage.processor.target.EventMessageTarget;
 
 /**
  * @author u190438
@@ -77,6 +78,11 @@ public class EventProcessor {
 		EventMessageOrigin origin = null;
 		ProcessingResult result = null;
 		int eventCount = 0;
+		/* If there is events to process prepare tokens first */
+		if (!events.isEmpty()) {
+			Log.getInstance().info("EventProcessor - Preparing token(s)...");
+			EventMessageTarget.prepareTokens();
+		}
 		for (EventMessage event : events) {
 			origin = event.getOrigin();
 			result = origin.getTarget().executeEventMessage(event);
