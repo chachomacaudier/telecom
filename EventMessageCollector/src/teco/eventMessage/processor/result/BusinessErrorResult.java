@@ -22,8 +22,8 @@ public class BusinessErrorResult extends ErrorResult {
 	 * 
 	 */
 	public void log() {
-		Log.getInstance().eventLog("ERROR (business): " + this.getResultInfo() +
-				" SOURCE: " + event.getSource().replaceAll(System.lineSeparator(), ""), Level.SEVERE);
+		Log.getInstance().eventLog(this.getResultInfo().replaceAll(System.lineSeparator(), "") +
+				"|" + this.eventInfoForLog(), Level.SEVERE);
 	}
 
 }

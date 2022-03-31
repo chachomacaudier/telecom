@@ -36,8 +36,8 @@ public class WarningResult extends ProcessingResult {
 	 * 
 	 */
 	public void log() {
-		Log.getInstance().eventLog("WARNING: " + this.getResultInfo().replaceAll("[\r\n]+", "") +
-				" SOURCE: " + event.getSource().replaceAll("[\r\n]+", ""), Level.WARNING);
+		Log.getInstance().eventLog(this.getResultInfo().replaceAll(System.lineSeparator(), "") +
+				 "|" + this.eventInfoForLog(), Level.WARNING);
 	}
 	
 	protected void retrieveResultInfo(HttpURLConnection conn) throws IOException {

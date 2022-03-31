@@ -113,13 +113,20 @@ public class Log {
 		try {
 			 fh=new FileHandler(Paths.get(currentDirectory, logFileName).toString(), false);
 			 fh.setFormatter(new SimpleFormatter() {
-		          private static final String format = "[%1$tF %1$tT] [%2$-7s] %3$s %n";
+				 /**
+				  * Custom Format for processing log:
+				  *  
+				  *  date time|level|<message>
+				  *  <message> -> description|origin|elem_type|elem_id|source
+				  *  
+				  **/
+		          private static final String format = "%1$tF %1$tT|%2$s|%3$s %n";
 
 		          @Override
 		          public synchronized String format(LogRecord lr) {
 		              return String.format(format,
 		                      new Date(lr.getMillis()),
-		                      lr.getLevel().getName(),
+		                      (lr.getLevel() == Level.SEVERE ? "ERROR" : lr.getLevel().getName()),
 		                      lr.getMessage()
 		              );
 		          }

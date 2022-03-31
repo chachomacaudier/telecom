@@ -148,11 +148,27 @@ public abstract class ProcessingResult {
 	}
 
 	/**
+	 * Build a String with all event related information of interest for logging post processing.
+	 * Expected structure: "origin|elem_type|elem_id|source"
+	 * 
+	 * @return String, with event formated information
+	 */
+	public String eventInfoForLog() {
+		return event.getOrigin().getName() + "|" +
+				event.getType() + "|" +
+				event.getIdentification() + "|" +
+				event.getSource().replaceAll(System.lineSeparator(), "");
+	}
+	
+	/**
 	 * Write a generic representation of this execution result to log with INFO level.
+	 * 
+	 * Anyway, the structure will be kept:
+	 * description|origin|elem_type|elem_id|source
 	 * 
 	 */
 	public void log() {
-		Log.getInstance().eventLog("Event executed: " + event.getShortDescription() + " - State: " + this.getState(), Level.INFO);
+		Log.getInstance().eventLog("Event executed: " + event.getShortDescription() + " - State: " + this.getState() + "|" + this.eventInfoForLog(), Level.INFO);
 	}
 
 	/**
